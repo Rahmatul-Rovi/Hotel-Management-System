@@ -1,10 +1,8 @@
-# hotel_gui.py
-import tkinter as tk
-from tkinter import ttk, messagebox
-from datetime import datetime
+import customtkinter as ctk
 import mysql.connector
+from datetime import datetime
 
-# Database connection setup
+# ---------- MySQL Connection ----------
 def connect_db():
     return mysql.connector.connect(
         host="127.0.0.1",
@@ -13,194 +11,223 @@ def connect_db():
         database="hotel_db"
     )
 
-# Hotel Management System GUI Class
-class HotelApp:
-    def __init__(self, root):
-        self.root = root
-        self.root.title("Hotel Management System")
-        self.root.geometry("800x600")
+# ---------- Database Functions ----------
+def add_customer(name, age):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("INSERT INTO students (name, age) VALUES (%s, %s)", (name, age))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return "✅ Customer added successfully!"
 
-        notebook = ttk.Notebook(self.root)
-        notebook.pack(fill='both', expand=True)
+def view_customers():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM students")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return "\n".join([f"ID: {r[0]}, Name: {r[1]}, Age: {r[2]}" for r in rows]) or "No customers found."
 
-        self.customer_tab = ttk.Frame(notebook)
-        self.room_tab = ttk.Frame(notebook)
-        self.booking_tab = ttk.Frame(notebook)
+def add_room(room_number, room_type, price):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO rooms (room_number, room_type, price_per_night, is_available)
+        VALUES (%s, %s, %s, TRUE)
+    """, (room_number, room_type, price))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return "✅ Room added successfully!"
 
-        notebook.add(self.customer_tab, text='Customers')
-        notebook.add(self.room_tab, text='Rooms')
-        notebook.add(self.booking_tab, text='Bookings')
+def view_rooms():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM rooms")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return "\n".join([f"ID: {r[0]}, Room: {r[1]}, Type: {r[2]}, Price: {r[3]}, Available: {r[4]}" for r in rows]) or "No rooms found."
 
-        self.create_customer_tab()
-        self.create_room_tab()
-        self.create_booking_tab()
+def show_available_rooms():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM rooms WHERE is_available = TRUE")
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return "\n".join([f"Room No: {r[1]}, Type: {r[2]}, Price: {r[3]}" for r in rows]) or "No available rooms."
 
-    # CUSTOMER TAB
-    def create_customer_tab(self):
-        tk.Label(self.customer_tab, text="Name").grid(row=0, column=0)
-        tk.Label(self.customer_tab, text="Age").grid(row=1, column=0)
+def add_booking(customer_name, room_id, check_in, check_out):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO bookings (customer_name, room_id, check_in, check_out)
+        VALUES (%s, %s, %s, %s)
+    """, (customer_name, room_id, check_in, check_out))
+    cursor.execute("UPDATE rooms SET is_available = FALSE WHERE id = %s", (room_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return "✅ Booking added successfully."
 
-        self.customer_name = tk.Entry(self.customer_tab)
-        self.customer_age = tk.Entry(self.customer_tab)
+def show_bookings():
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT b.id, r.room_number, b.customer_name, b.check_in, b.check_out
+        FROM bookings b
+        JOIN rooms r ON b.room_id = r.id
+    """)
+    rows = cursor.fetchall()
+    cursor.close()
+    conn.close()
+    return "\n".join([
+        f"Booking ID: {r[0]}, Room: {r[1]}, Customer: {r[2]}, From: {r[3]}, To: {r[4]}"
+        for r in rows]) or "No bookings found."
 
-        self.customer_name.grid(row=0, column=1)
-        self.customer_age.grid(row=1, column=1)
+def calculate_booking_price(room_id, check_in, check_out):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT price_per_night FROM rooms WHERE id = %s", (room_id,))
+    result = cursor.fetchone()
+    cursor.close()
+    conn.close()
 
-        tk.Button(self.customer_tab, text="Add Customer", command=self.add_customer).grid(row=2, column=0, columnspan=2)
-        tk.Button(self.customer_tab, text="View Customers", command=self.view_customers).grid(row=3, column=0, columnspan=2)
+    if not result:
+        return "❌ Room not found."
 
-        self.customer_list = tk.Text(self.customer_tab, height=10, width=60)
-        self.customer_list.grid(row=4, column=0, columnspan=2, pady=10)
+    price = result[0]
+    check_in_date = datetime.strptime(check_in, "%Y-%m-%d")
+    check_out_date = datetime.strptime(check_out, "%Y-%m-%d")
+    nights = (check_out_date - check_in_date).days
 
-    def add_customer(self):
-        name = self.customer_name.get()
-        age = self.customer_age.get()
-        if not name or not age:
-            messagebox.showerror("Error", "All fields are required")
-            return
-        try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO students (name, age) VALUES (%s, %s)", (name, age))
-            conn.commit()
-            conn.close()
-            messagebox.showinfo("Success", "Customer added")
-            self.customer_name.delete(0, tk.END)
-            self.customer_age.delete(0, tk.END)
-        except Exception as e:
-            messagebox.showerror("Database Error", str(e))
+    if nights <= 0:
+        return "❌ Invalid date range."
 
-    def view_customers(self):
-        self.customer_list.delete(1.0, tk.END)
-        try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM students")
-            rows = cursor.fetchall()
-            for row in rows:
-                self.customer_list.insert(tk.END, f"ID: {row[0]}, Name: {row[1]}, Age: {row[2]}\n")
-            conn.close()
-        except Exception as e:
-            messagebox.showerror("Database Error", str(e))
+    total = nights * price
+    return f"🧾 Total for {nights} nights: {total} BDT"
 
-    # ROOM TAB
-    def create_room_tab(self):
-        tk.Label(self.room_tab, text="Room Number").grid(row=0, column=0)
-        tk.Label(self.room_tab, text="Room Type").grid(row=1, column=0)
-        tk.Label(self.room_tab, text="Price/Night").grid(row=2, column=0)
+def delete_room(room_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM rooms WHERE id = %s", (room_id,))
+    conn.commit()
+    cursor.close()
+    conn.close()
+    return "✅ Room deleted successfully."
 
-        self.room_number = tk.Entry(self.room_tab)
-        self.room_type = tk.Entry(self.room_tab)
-        self.room_price = tk.Entry(self.room_tab)
+def delete_booking(booking_id):
+    conn = connect_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT room_id FROM bookings WHERE id = %s", (booking_id,))
+    room = cursor.fetchone()
+    if room:
+        room_id = room[0]
+        cursor.execute("DELETE FROM bookings WHERE id = %s", (booking_id,))
+        cursor.execute("UPDATE rooms SET is_available = TRUE WHERE id = %s", (room_id,))
+        conn.commit()
+        result = "✅ Booking deleted and room marked available."
+    else:
+        result = "❌ Booking not found."
+    cursor.close()
+    conn.close()
+    return result
 
-        self.room_number.grid(row=0, column=1)
-        self.room_type.grid(row=1, column=1)
-        self.room_price.grid(row=2, column=1)
+# ---------- GUI ----------
+ctk.set_appearance_mode("System")
+ctk.set_default_color_theme("blue")
 
-        tk.Button(self.room_tab, text="Add Room", command=self.add_room).grid(row=3, column=0, columnspan=2)
-        tk.Button(self.room_tab, text="View Rooms", command=self.view_rooms).grid(row=4, column=0, columnspan=2)
+app = ctk.CTk()
+app.geometry("1000x900")
+app.title("🏨 Hotel Management System")
 
-        self.room_list = tk.Text(self.room_tab, height=10, width=60)
-        self.room_list.grid(row=5, column=0, columnspan=2, pady=10)
+main_frame = ctk.CTkFrame(app)
+main_frame.pack(fill="both", expand=True)
 
-    def add_room(self):
-        room_number = self.room_number.get()
-        room_type = self.room_type.get()
-        price = self.room_price.get()
-        if not room_number or not room_type or not price:
-            messagebox.showerror("Error", "All fields are required")
-            return
-        try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute("INSERT INTO rooms (room_number, room_type, price_per_night, is_available) VALUES (%s, %s, %s, TRUE)",
-                           (room_number, room_type, price))
-            conn.commit()
-            conn.close()
-            messagebox.showinfo("Success", "Room added")
-        except Exception as e:
-            messagebox.showerror("Database Error", str(e))
+button_frame = ctk.CTkFrame(main_frame)
+button_frame.pack(pady=20)
 
-    def view_rooms(self):
-        self.room_list.delete(1.0, tk.END)
-        try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM rooms")
-            rows = cursor.fetchall()
-            for row in rows:
-                self.room_list.insert(tk.END, f"ID: {row[0]}, No: {row[1]}, Type: {row[2]}, Price: {row[3]}, Available: {row[4]}\n")
-            conn.close()
-        except Exception as e:
-            messagebox.showerror("Database Error", str(e))
+entry_frame = ctk.CTkFrame(main_frame)
+entry_frame.pack(pady=10)
+entry_frame.pack_forget()
 
-    # BOOKING TAB
-    def create_booking_tab(self):
-        tk.Label(self.booking_tab, text="Customer Name").grid(row=0, column=0)
-        tk.Label(self.booking_tab, text="Room ID").grid(row=1, column=0)
-        tk.Label(self.booking_tab, text="Check-in (YYYY-MM-DD)").grid(row=2, column=0)
-        tk.Label(self.booking_tab, text="Check-out (YYYY-MM-DD)").grid(row=3, column=0)
+output_box = ctk.CTkTextbox(main_frame, height=200, width=500)
+output_box.pack(side="bottom", fill="both", padx=20, pady=10)
+output_box.configure(wrap="word")
+output_box.pack_forget()
 
-        self.booking_name = tk.Entry(self.booking_tab)
-        self.booking_room_id = tk.Entry(self.booking_tab)
-        self.booking_checkin = tk.Entry(self.booking_tab)
-        self.booking_checkout = tk.Entry(self.booking_tab)
+close_btn = ctk.CTkButton(main_frame, text="❌ Close", command=lambda: show_main_menu(), width=80)
+close_btn.place_forget()
 
-        self.booking_name.grid(row=0, column=1)
-        self.booking_room_id.grid(row=1, column=1)
-        self.booking_checkin.grid(row=2, column=1)
-        self.booking_checkout.grid(row=3, column=1)
+# Button definitions
+buttons_data = [
+    ("➕ Add Customer", lambda: show_form("add_customer", ["Name", "Age"])),
+    ("👁️ View Customers", lambda: show_result(view_customers())),
+    ("🏠 Add Room", lambda: show_form("add_room", ["Room Number", "Room Type", "Price"])),
+    ("📋 View Rooms", lambda: show_result(view_rooms())),
+    ("✅ Available Rooms", lambda: show_result(show_available_rooms())),
+    ("📅 Add Booking", lambda: show_form("add_booking", ["Customer Name", "Room ID", "Check-In", "Check-Out"])),
+    ("🔍 View Bookings", lambda: show_result(show_bookings())),
+    ("💵 Calculate Price", lambda: show_form("calculate_price", ["Room ID", "Check-In", "Check-Out"])),
+    ("❌ Delete Room", lambda: show_form("delete_room", ["Room ID"])),
+    ("🗑️ Delete Booking", lambda: show_form("delete_booking", ["Booking ID"]))
+]
 
-        tk.Button(self.booking_tab, text="Add Booking", command=self.add_booking).grid(row=4, column=0, columnspan=2)
-        tk.Button(self.booking_tab, text="View Bookings", command=self.view_bookings).grid(row=5, column=0, columnspan=2)
+buttons = []
+for text, cmd in buttons_data:
+    btn = ctk.CTkButton(button_frame, text=text, command=cmd, width=250)
+    btn.pack(pady=5)
+    buttons.append(btn)
 
-        self.booking_list = tk.Text(self.booking_tab, height=10, width=60)
-        self.booking_list.grid(row=6, column=0, columnspan=2, pady=10)
+def show_main_menu():
+    entry_frame.pack_forget()
+    output_box.pack_forget()
+    close_btn.place_forget()
+    for b in buttons:
+        b.pack(pady=5)
 
-    def add_booking(self):
-        name = self.booking_name.get()
-        room_id = self.booking_room_id.get()
-        check_in = self.booking_checkin.get()
-        check_out = self.booking_checkout.get()
-        try:
-            datetime.strptime(check_in, "%Y-%m-%d")
-            datetime.strptime(check_out, "%Y-%m-%d")
-        except ValueError:
-            messagebox.showerror("Invalid Date", "Use YYYY-MM-DD format")
-            return
-        try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute("""
-                INSERT INTO bookings (customer_name, room_id, check_in, check_out)
-                VALUES (%s, %s, %s, %s)
-            """, (name, room_id, check_in, check_out))
-            cursor.execute("UPDATE rooms SET is_available = FALSE WHERE id = %s", (room_id,))
-            conn.commit()
-            conn.close()
-            messagebox.showinfo("Success", "Booking added")
-        except Exception as e:
-            messagebox.showerror("Database Error", str(e))
+def show_form(action, fields):
+    for b in buttons:
+        b.pack_forget()
+    for widget in entry_frame.winfo_children():
+        widget.destroy()
 
-    def view_bookings(self):
-        self.booking_list.delete(1.0, tk.END)
-        try:
-            conn = connect_db()
-            cursor = conn.cursor()
-            cursor.execute("""
-                SELECT b.id, r.room_number, b.customer_name, b.check_in, b.check_out
-                FROM bookings b
-                JOIN rooms r ON b.room_id = r.id
-            """)
-            rows = cursor.fetchall()
-            for row in rows:
-                self.booking_list.insert(tk.END, f"Booking ID: {row[0]}, Room: {row[1]}, Name: {row[2]}, From: {row[3]}, To: {row[4]}\n")
-            conn.close()
-        except Exception as e:
-            messagebox.showerror("Database Error", str(e))
+    entries = []
+    for field in fields:
+        lbl = ctk.CTkLabel(entry_frame, text=field)
+        lbl.pack(pady=2)
+        ent = ctk.CTkEntry(entry_frame, width=300)
+        ent.pack(pady=2)
+        entries.append(ent)
 
-# MAIN PROGRAM
-if __name__ == "__main__":
-    root = tk.Tk()
-    app = HotelApp(root)
-    root.mainloop()
+    def submit():
+        values = [e.get() for e in entries]
+        if action == "add_customer":
+            show_result(add_customer(values[0], int(values[1])))
+        elif action == "add_room":
+            show_result(add_room(values[0], values[1], float(values[2])))
+        elif action == "add_booking":
+            show_result(add_booking(values[0], int(values[1]), values[2], values[3]))
+        elif action == "calculate_price":
+            show_result(calculate_booking_price(int(values[0]), values[1], values[2]))
+        elif action == "delete_room":
+            show_result(delete_room(int(values[0])))
+        elif action == "delete_booking":
+            show_result(delete_booking(int(values[0])))
+
+    ctk.CTkButton(entry_frame, text="Submit", command=submit).pack(pady=10)
+    entry_frame.pack()
+    close_btn.place(relx=0.9, rely=0.05)
+
+def show_result(result):
+    entry_frame.pack_forget()
+    output_box.pack()
+    output_box.delete("1.0", "end")
+    output_box.insert("end", result)
+    close_btn.place(relx=0.9, rely=0.05)
+
+# Run the app
+app.mainloop()
